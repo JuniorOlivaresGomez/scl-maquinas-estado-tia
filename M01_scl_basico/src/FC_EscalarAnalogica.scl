@@ -2,7 +2,7 @@
 TITLE = Escalado lineal de entrada analogica
 { S7_Optimized_Access := 'TRUE' }
 AUTHOR : JOLIVARES
-VERSION : 0.2
+VERSION : 0.1
 //Raw -> 0 ... 27648 se convierte a unidades de ingenieria
    VAR_INPUT 
       iRaw : Int;   // Valor de la tarjeta (RAW_MIN..RAW_MAX nominal; mayor = rebase)
