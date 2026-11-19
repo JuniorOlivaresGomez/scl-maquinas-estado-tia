@@ -1,0 +1,77 @@
+﻿FUNCTION "FC_EscalarAnalogica" : Void
+TITLE = Escalado lineal de entrada analogica
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : JOLIVARES
+VERSION : 0.2
+//Raw -> 0 ... 27648 se convierte a unidades de ingenieria
+   VAR_INPUT 
+      iRaw : Int;   // Valor de la tarjeta (RAW_MIN..RAW_MAX nominal; mayor = rebase)
+      iLimInf : Real;   // Unidades de ingenieria cuando iRaw = RAW_MIN
+      iLimSup : Real;   // Unidades de ingenieria cuando iRaw = RAW_MAX
+   END_VAR
+
+   VAR_OUTPUT 
+      qValor : Real;   // Valor en unidades de ingenieria, siempre entre iLimInf e iLimSup
+      qFueraRango : Bool;   // TRUE = iRaw fuera de RAW_MIN..RAW_MAX (rebase o desborde)
+   END_VAR
+
+   VAR_TEMP 
+      FraccionRaw : Real;   // Posicion relativa en el rango, 0.0 .. 1.0
+   END_VAR
+
+   VAR CONSTANT 
+      RAW_MAX : Int := 27648;   // Valor maximo para la entrada iRaw
+      RAW_MIN : Int := 0;   // valor minimo para la entrada iRaw
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// FC_EscalarAnalogica | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Convierte el valor digitalizado de una entrada analogica S7-1200
+	//   a unidades de ingenieria (degC, bar, %...).
+	//
+	// FORMULA (recta por (RAW_MIN, iLimInf) y (RAW_MAX, iLimSup))
+	//   Fraccion = (Raw - RAW_MIN) / (RAW_MAX - RAW_MIN)   limitada a 0.0 .. 1.0
+	//   Valor    = iLimInf + Fraccion * (iLimSup - iLimInf)
+	//   RAW_MIN  = 0, RAW_MAX = 27648 (rango nominal S7-1200)
+	//
+	// CONTRATO DE USO
+	//   - Sin memoria: puede llamarse desde cualquier OB.
+	//   - Admite rango invertido (iLimInf > iLimSup).
+	//   - qValor siempre queda entre iLimInf e iLimSup.
+	//   - qFueraRango = TRUE si Raw < RAW_MIN o Raw > RAW_MAX.
+	//
+	// LIMITACIONES
+	//   - Con senal 0-10 V no detecta rotura de cable: 0 V es un valor valido.
+	//   - No filtra ruido de la medicion.
+	//
+	// DEPENDENCIAS
+	//   - Ninguna.
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-19  Version inicial
+	//=============================================================================
+	
+	REGION 0_Normalizar         // Normalizar el valor del sensor entre 0 y 1
+	    // Conversion a Real ANTES de restar: evita desborde de Int
+	    #FraccionRaw := (INT_TO_REAL(#iRaw) - INT_TO_REAL(#RAW_MIN))
+	    / (INT_TO_REAL(#RAW_MAX) - INT_TO_REAL(#RAW_MIN));
+	    #FraccionRaw := LIMIT(MN := 0.0, IN := #FraccionRaw, MX := 1.0);
+	END_REGION
+	
+	REGION 1_Escalar            // Escalar a unidades de ingenieria
+	    // Fraccion entre 0 y 1 => qValor queda entre iLimInf e iLimSup,
+	    // incluso con rango invertido
+	    #qValor := #iLimInf + #FraccionRaw * (#iLimSup - #iLimInf);
+	END_REGION
+	
+	REGION 2_Diagnostico        // Valor fuera del rango nominal (rebase o desborde)
+	    #qFueraRango := (#iRaw < #RAW_MIN) OR (#iRaw > #RAW_MAX);
+	END_REGION
+END_FUNCTION
+
