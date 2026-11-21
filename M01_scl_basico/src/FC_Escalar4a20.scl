@@ -158,9 +158,14 @@ BEGIN
 	//   - qCorriente no esta limitada: muestra el valor real para diagnostico.
 	//
 	// LIMITACIONES
-	//   - Los codigos de desbordamiento (32767 / -32768) pueden indicar rotura
-	//     o cortocircuito segun la diagnosis configurada en la tarjeta; por eso
-	//     se reportan como "tipo no determinado". (Verificar en manual SM 1231.)
+	//   - Codigos de la tarjeta segun configuracion del canal (SM 1231):
+	//       Diagnostico de rotura ACTIVADO:    rotura y desborde -> 32767
+	//                                          (no distinguibles: DesbordeAlto)
+	//       Diagnostico de rotura DESACTIVADO: rotura -> -32768 (DesbordeBajo)
+	//                                          desborde -> 32767 (DesbordeAlto)
+	//     Verificado en la logica del manual S7-1500; confirmar en el manual
+	//     S7-1200 o con prueba fisica.
+	//   - Ajustar el tiempo de integracion del canal a 60 Hz (red en Peru).
 	//   - qValor no distingue un valor sustituto de una medicion real: usar
 	//     qFalla para generar alarma en el HMI.
 	//   - No filtra ruido de la medicion.
