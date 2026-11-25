@@ -1,0 +1,96 @@
+﻿FUNCTION_BLOCK "FB_Antirrebote"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      iEntrada : Bool;   // Señal cruda, con rebotes
+      iTiempo : Time;   // Tiempo de estabilidad requerido (por defecto T#50ms)
+   END_VAR
+
+   VAR_OUTPUT 
+      qSalida : Bool;   // Señal filtrada
+      qFlancoSubida : Bool;   // TRUE un ciclo cuando qsalida sube
+      qFlancoBajada : Bool;   // TRUE un ciclo cuando qsalida baja
+   END_VAR
+
+   VAR 
+      tmrEstableTrue {InstructionName := 'TON_TIME'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : TON_TIME;   // Mide cuanto lleva la entrada en TRUE
+      tmrEstableFalse {InstructionName := 'TON_TIME'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : TON_TIME;   // Mide cuanto lleva la entrada en FALSE
+      rtSalida {InstructionName := 'R_TRIG'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : R_TRIG;   // Flanco de subida de la salida
+      ftSalida {InstructionName := 'F_TRIG'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : F_TRIG;   // Flanco de bajada de la salida
+      SalidaFiltrada { ExternalWritable := 'False'} : Bool;   // Memoria del estado filtrado
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// FB_Antirrebote | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Filtra una senal digital con rebotes o ruido: la salida solo cambia
+	//   cuando la entrada se mantiene estable iTiempo en el nuevo valor.
+	//   Entrega ademas los flancos de la senal YA filtrada.
+	//
+	// FUNCIONAMIENTO
+	//   tmrEstableTrue  (TON): cuenta mientras iEntrada = TRUE
+	//   tmrEstableFalse (TON): cuenta mientras iEntrada = FALSE
+	//   Vence tmrEstableTrue  -> SalidaFiltrada := TRUE
+	//   Vence tmrEstableFalse -> SalidaFiltrada := FALSE
+	//   Ninguno vencio        -> SalidaFiltrada conserva su valor (Static)
+	//   qSalida se copia de SalidaFiltrada una sola vez, al final.
+	//
+	// CONTRATO DE USO
+	//   - Llamar en todos los ciclos (OB1). Un rebote mas corto que iTiempo
+	//     no cambia la salida.
+	//   - qFlancoSubida / qFlancoBajada duran UN ciclo: para verlos en
+	//     una tabla de observacion hay que contarlos.
+	//   - Retardo: la salida reacciona iTiempo despues del cambio real.
+	//   - La memoria (SalidaFiltrada) no es escribible desde fuera.
+	//
+	// LIMITACIONES
+	//   - Agrega retardo igual a iTiempo en ambos sentidos: no usar valores
+	//     grandes en senales que deben reaccionar rapido (paros, seguridad).
+	//   - Mismo tiempo para subir y bajar (filtro simetrico).
+	//   - Tras arrancar la CPU, qSalida = FALSE hasta que la entrada sea
+	//     estable iTiempo.
+	//
+	// DEPENDENCIAS
+	//   - Ninguna (TON_TIME, R_TRIG, F_TRIG como multiinstancia).
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-20  Version inicial
+	//=============================================================================
+	
+	REGION 0_Timers             // Se llaman SIEMPRE, sin IF alrededor
+	    #tmrEstableTrue(IN := #iEntrada,        // cuenta mientras la entrada esta en TRUE
+	                    PT := #iTiempo);
+	    #tmrEstableFalse(IN := NOT #iEntrada,   // cuenta mientras la entrada esta en FALSE
+	                     PT := #iTiempo);
+	END_REGION
+	
+	REGION 1_Estado             // El estado cambia solo si la entrada fue estable iTiempo
+	    IF #tmrEstableTrue.Q THEN               // estable en TRUE  -> estado TRUE
+	        #SalidaFiltrada := TRUE;
+	    ELSIF #tmrEstableFalse.Q THEN           // estable en FALSE -> estado FALSE
+	        #SalidaFiltrada := FALSE;
+	    END_IF;
+	    // Ninguno vencio (entrada rebotando): SalidaFiltrada conserva su valor
+	END_REGION
+	
+	REGION 2_Flancos            // Flancos de la senal FILTRADA (no de la entrada ni de los timers)
+	    #rtSalida(CLK := #SalidaFiltrada);
+	    #qFlancoSubida := #rtSalida.Q;
+	    
+	    #ftSalida(CLK := #SalidaFiltrada);
+	    #qFlancoBajada := #ftSalida.Q;
+	END_REGION
+	
+	REGION 3_Salidas            // Unica escritura de qSalida
+	    #qSalida := #SalidaFiltrada;
+	END_REGION
+	
+	
+	
+END_FUNCTION_BLOCK
+

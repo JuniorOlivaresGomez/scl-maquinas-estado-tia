@@ -1,0 +1,82 @@
+﻿FUNCTION_BLOCK "FB_FiltroPT1"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      iEntrada : Real;   // Senal a filtrar
+      iTf : Real;   // Constante de tiempo [s] (por defecto 1.0)
+      iTs : Real;   // Periodo de 0B30 [s] (por defecto 0.1)
+      iReset : Bool;   // TURE = la salida salta al valor de entrada
+   END_VAR
+
+   VAR_OUTPUT 
+      qSalida : Real;   // Senal filtrada
+      qError : Bool := false;   // TRUE = iTs <= 0 o iTf < 0 (salida sin filtrar)
+   END_VAR
+
+   VAR 
+      Y : Real;   // Memoria: y[k-1]
+      Inicializado : Bool;   // FALSE despues de arrancar la CPU
+   END_VAR
+
+   VAR_TEMP 
+      Alfa : Real;   // Ts / (Tf + Ts)
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// FB_FiltroPT1 | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Filtro pasa bajos de primer orden (PT1): suaviza una senal con ruido.
+	//
+	// FORMULA
+	//   Modelo continuo:  Tf * dy/dt + y = x
+	//   Discretizado (Euler hacia atras, periodo Ts):
+	//     Alfa = Ts / (Tf + Ts)
+	//     Y[k] = Y[k-1] + Alfa * (x[k] - Y[k-1])
+	//   Tf = 0 -> Alfa = 1 -> sin filtro (Y = x)
+	//
+	// CONTRATO DE USO
+	//   - Llamar en un OB de interrupcion ciclica (OB30) con iTs = periodo de ese OB.
+	//   - Primer ciclo tras arrancar la CPU, o con iReset: Y = iEntrada
+	//     (evita un transitorio falso desde 0).
+	//   - Parametros invalidos (iTs <= 0 o iTf < 0): qError = TRUE y la salida
+	//     es la entrada sin filtrar.
+	//
+	// LIMITACIONES
+	//   - Si se cambia el periodo de OB30 y no se actualiza iTs, la constante
+	//     de tiempo real del filtro sera distinta de iTf.
+	//   - Todo filtro agrega retardo: no filtrar antes de evaluar fallas de la
+	//     senal, y en lazos de control usar Tf mucho menor que la constante de
+	//     tiempo del proceso.
+	//
+	// DEPENDENCIAS
+	//   - Ninguna.
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-25  Version inicial
+	//=============================================================================
+	
+	REGION 0_Filtro
+	    IF (#iTs <= 0.0) OR (#iTf < 0.0) THEN       // parametros invalidos: sin filtrar
+	        #qError := TRUE;
+	        #Y := #iEntrada;
+	    ELSIF NOT #Inicializado OR #iReset THEN     // primer ciclo o reset
+	        #qError := FALSE;
+	        #Y := #iEntrada;
+	        #Inicializado := TRUE;
+	    ELSE                                        // caso normal
+	        #qError := FALSE;
+	        #Alfa := #iTs / (#iTf + #iTs);
+	        #Y := #Y + #Alfa * (#iEntrada - #Y);
+	    END_IF;
+	END_REGION
+	
+	REGION 1_Salidas            // Unica escritura de qSalida
+	    #qSalida := #Y;
+	END_REGION
+END_FUNCTION_BLOCK
+

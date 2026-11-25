@@ -14,7 +14,7 @@ Repositorio paso a paso para la programación de una máquina que fabrica mangas
 | :---: | :--- | :--- | :---: |
 | **M00** | Entorno: proyecto 1215C, PLCSIM, repositorio | — | ✅ |
 | **M01** | SCL básico: ciclo de scan, tipos, conversiones, FC | `FC_EscalarAnalogica`, `FC_Escalar4a20` | ✅ |
-| **M02** | Timers y flancos | `FB_Antirrebote`, `FB_Intermitente` | ⏳ |
+| **M02** | Timers y flancos | `FB_Antirrebote`, `FB_Intermitente` | ✅ |
 | **M03** | Datos: UDT y DB en lugar de marcas `%M` | `UDT_CilindroIO`, `DB_Planta` | ⏳ |
 | **M04** | Capa de I/O + simulador de planta | `FC_Read_IO`, `FC_Write_IO`, `FB_SimCilindro` | ⏳ |
 | **M05** | FB de actuador: modos, interlocks, watchdog | `FB_Cilindro` | ⏳ |

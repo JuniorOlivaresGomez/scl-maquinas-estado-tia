@@ -1,0 +1,94 @@
+﻿FUNCTION_BLOCK "FB_Intermitente"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      iHabilitar : Bool;   // TRUE = parpadea, FALSE = apagada
+      iTiempoOn : Time := T#500MS;   // Tiempo encendida (por defecto T#500MS)
+      iTiempoOff : Time := T#500MS;   // Tiempo apagada (por defecto T#500MS)
+   END_VAR
+
+   VAR_OUTPUT 
+      qSalida : Bool;   // Salida intermitente
+   END_VAR
+
+   VAR 
+      tmrFaseOn {InstructionName := 'TON_TIME'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : TON_TIME;
+      tmrFaseOff {InstructionName := 'TON_TIME'; LibVersion := '1.0'; ExternalWritable := 'False'} : TON_TIME;
+      FaseOn { ExternalWritable := 'False'; S7_SetPoint := 'True'} : Bool;
+      rtHabilitar {InstructionName := 'R_TRIG'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : R_TRIG;
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// FB_Intermitente | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Salida intermitente con tiempos de encendido y apagado configurables,
+	//   sin usar la marca de reloj de la CPU. Uso tipico: baliza de falla.
+	//
+	// FUNCIONAMIENTO (maquina de 2 estados, modelo Moore)
+	//   Estado: FaseOn (TRUE = fase encendida)
+	//   Prioridad de transiciones (region 2):
+	//     1. NOT iHabilitar          -> FaseOn := FALSE
+	//     2. Flanco de iHabilitar    -> FaseOn := TRUE  (siempre empieza encendida)
+	//     3. Vence tmrFaseOn         -> FaseOn := FALSE
+	//     4. Vence tmrFaseOff        -> FaseOn := TRUE
+	//   Los timers incluyen iHabilitar en su IN: al deshabilitar se reinician,
+	//   asi al rehabilitar no queda tiempo acumulado.
+	//
+	// CONTRATO DE USO
+	//   - iHabilitar es una senal de NIVEL (condicion mantenida), no un pulso.
+	//   - Al habilitar: enciende de inmediato, con iTiempoOn completo.
+	//   - Al deshabilitar: qSalida = FALSE en el mismo ciclo.
+	//
+	// LIMITACIONES
+	//   - Cada cambio de fase se retrasa hasta 1 ciclo de OB1 (el timer de la
+	//     fase nueva arranca en el ciclo siguiente). Con tiempos cortos el
+	//     periodo real es algo mayor que iTiempoOn + iTiempoOff.
+	//   - No usar como base de tiempo precisa (para eso: OB30).
+	//
+	// DEPENDENCIAS
+	//   - Ninguna (TON_TIME, R_TRIG como multiinstancia).
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-21  Version inicial
+	//=============================================================================
+	
+	REGION 0_Arranque           // Flanco de subida de iHabilitar
+	    #rtHabilitar(CLK := #iHabilitar);
+	END_REGION
+	
+	REGION 1_Timers             // Se llaman SIEMPRE, sin IF alrededor
+	    // Solo cuenta el timer de la fase actual (FaseOn y NOT FaseOn se excluyen)
+	    #tmrFaseOn(IN := #iHabilitar AND #FaseOn,
+	               PT := #iTiempoOn);
+	    #tmrFaseOff(IN := #iHabilitar AND NOT #FaseOn,
+	                PT := #iTiempoOff);
+	END_REGION
+	
+	REGION 2_Fase               // Transiciones de estado, en orden de prioridad
+	    IF NOT #iHabilitar THEN             // 1. deshabilitado: apagada
+	        #FaseOn := FALSE;
+	    ELSIF #rtHabilitar.Q THEN           // 2. recien habilitado: empieza encendida
+	        #FaseOn := TRUE;
+	    ELSIF #tmrFaseOn.Q THEN             // 3. termino fase encendida
+	        #FaseOn := FALSE;
+	    ELSIF #tmrFaseOff.Q THEN            // 4. termino fase apagada
+	        #FaseOn := TRUE;
+	    END_IF;
+	    // Ninguno: FaseOn conserva su valor
+	END_REGION
+	
+	REGION 3_Salidas            // Unica escritura de qSalida
+	    // El AND con iHabilitar es redundante (caso 1 ya apaga FaseOn);
+	    // se deja como segunda proteccion
+	    #qSalida := #FaseOn AND #iHabilitar;
+	END_REGION
+	
+	
+	
+END_FUNCTION_BLOCK
+
