@@ -1,0 +1,67 @@
+﻿TYPE "UDT_CilindroIO"
+VERSION : 0.1
+   STRUCT
+      SensAtras : Bool;   // TRUE = vastago retraido
+      SensAdelante : Bool;   // TRUE = vastago extendido
+      BobinaAvance : Bool;   // TRUE = energizar bobina de avance
+      BobinaRetroceso : Bool;   // TRUE = energizar bobina de retroceso
+   END_STRUCT;
+
+END_TYPE
+
+FUNCTION "FC_BloqueIncoherencoa" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_OUTPUT 
+      qIncoherente : Bool;   // TUR = Ambos sensores activos
+   END_VAR
+
+   VAR_IN_OUT 
+      ioCil : "UDT_CilindroIO";   // Cilindro a vigilar (se leen sensores y se escriben bobinas)
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// FC_BloqueoIncoherencia | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Si los dos sensores de un cilindro estan activos a la vez (sensor
+	//   danado o mal ajustado: posicion real desconocida), apaga las dos
+	//   bobinas de ese cilindro y lo informa.
+	//
+	// CONTRATO DE USO
+	//   - ioCil es InOut: la FC lee los sensores y ESCRIBE las bobinas del
+	//     cilindro original (ej. "DB_Planta".Cil1).
+	//   - Llamar DESPUES de la logica que calcula las bobinas, para que el
+	//     bloqueo tenga la ultima palabra.
+	//   - Una llamada por cilindro; la misma FC sirve para todos.
+	//
+	// LIMITACIONES
+	//   - No enclava la falla (FC sin memoria): si los sensores vuelven a ser
+	//     coherentes, el bloqueo desaparece en el mismo ciclo. El enclavamiento
+	//     y el rearme corresponden a la FB del cilindro (M05) o a la FSM.
+	//   - No detecta "ningun sensor activo" (normal a media carrera).
+	//   - No es una funcion de seguridad: protege la maquina, no a personas.
+	//
+	// DEPENDENCIAS
+	//   - UDT_CilindroIO
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-25  Version inicial
+	//=============================================================================
+	
+	REGION 0_Deteccion          // Ambos sensores activos = posicion desconocida
+	    #qIncoherente := #ioCil.SensAtras AND #ioCil.SensAdelante;
+	END_REGION
+	
+	REGION 1_Bloqueo            // Posicion desconocida: no mover el cilindro
+	    IF #qIncoherente THEN
+	        #ioCil.BobinaRetroceso := FALSE;
+	        #ioCil.BobinaAvance := FALSE;
+	    END_IF;
+	END_REGION
+END_FUNCTION
+

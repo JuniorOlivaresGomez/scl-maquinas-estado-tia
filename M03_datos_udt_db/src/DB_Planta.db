@@ -1,0 +1,53 @@
+﻿TYPE "UDT_CilindroIO"
+VERSION : 0.1
+   STRUCT
+      SensAtras : Bool;   // TRUE = vastago retraido
+      SensAdelante : Bool;   // TRUE = vastago extendido
+      BobinaAvance : Bool;   // TRUE = energizar bobina de avance
+      BobinaRetroceso : Bool;   // TRUE = energizar bobina de retroceso
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "UDT_Analogica"
+VERSION : 0.1
+   STRUCT
+      Raw : Int := 0;   // Valor de la tarjeta (0..27648 nominal)
+      LinInf : Real := 0.0;   // Unidades de ingenieria cuando Raw = 0
+      LimSup : Real := 100.0;   // Unidades de ingenieria cuando Raw = 27648
+      Valor : Real := 0.0;   // Valor escalado
+      FueraRango : Bool := false;   // TRUE = Raw fuera del rango nominal
+   END_STRUCT;
+
+END_TYPE
+
+DATA_BLOCK "DB_Planta"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+   VAR 
+      Config : Struct   // Configuracion
+         Simulacion : Bool;   // TRUE = Sensores vienen del simulador (M04)
+      END_STRUCT;
+      Panel : Struct   // Panel del operador
+         Start : Bool;   // Pulsador de marcha
+         Stop : Bool;   // TRUE = para pedido (NC ya invertido)
+         Reset : Bool;   // Pulsador de rearme
+         SeguridadOk : Bool;   // Rele de seguridad
+      END_STRUCT;
+      LamparaFalla : Bool;   // Pilto de falla
+      Cil1 { S7_SetPoint := 'False'} : "UDT_CilindroIO";   // Cilindro 1
+      Cil2 : "UDT_CilindroIO";   // Cilindro 2
+      Horno : Struct   // Camara de curado
+         Temp { S7_SetPoint := 'False'} : "UDT_Analogica";   // Temperatura [degC]
+         Resistencia { S7_SetPoint := 'True'} : Bool;   // TRUE = Resistencia energizada
+      END_STRUCT;
+   END_VAR
+
+
+BEGIN
+   Horno.Temp.LinInf := 0.0;
+   Horno.Temp.LimSup := 300.0;
+
+END_DATA_BLOCK
+

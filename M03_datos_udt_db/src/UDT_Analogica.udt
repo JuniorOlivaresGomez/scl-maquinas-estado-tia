@@ -1,0 +1,12 @@
+﻿TYPE "UDT_Analogica"
+VERSION : 0.1
+   STRUCT
+      Raw : Int := 0;   // Valor de la tarjeta (0..27648 nominal)
+      LinInf : Real := 0.0;   // Unidades de ingenieria cuando Raw = 0
+      LimSup : Real := 100.0;   // Unidades de ingenieria cuando Raw = 27648
+      Valor : Real := 0.0;   // Valor escalado
+      FueraRango : Bool := false;   // TRUE = Raw fuera del rango nominal
+   END_STRUCT;
+
+END_TYPE
+

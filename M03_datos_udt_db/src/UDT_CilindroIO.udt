@@ -1,0 +1,11 @@
+﻿TYPE "UDT_CilindroIO"
+VERSION : 0.1
+   STRUCT
+      SensAtras : Bool;   // TRUE = vastago retraido
+      SensAdelante : Bool;   // TRUE = vastago extendido
+      BobinaAvance : Bool;   // TRUE = energizar bobina de avance
+      BobinaRetroceso : Bool;   // TRUE = energizar bobina de retroceso
+   END_STRUCT;
+
+END_TYPE
+
