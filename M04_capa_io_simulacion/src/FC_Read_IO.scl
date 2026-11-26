@@ -283,7 +283,39 @@ FUNCTION "FC_Read_IO" : Void
 VERSION : 0.1
 
 BEGIN
-	
+	//=============================================================================
+	// FC_Read_IO | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC) + SM 1234, TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Capa de abstraccion de entradas. UNICO lugar del programa donde se leen
+	//   direcciones %I. Copia las entradas a DB_Planta en logica positiva.
+	//
+	// FUNCIONAMIENTO
+	//   Region 0: panel de operador, siempre desde entradas.
+	//             El paro es NC: Panel.Stop := NOT I_Stop_NC (TRUE = paro pedido).
+	//   Region 1: sensores de proceso, solo si Config.Simulacion = FALSE.
+	//             En simulacion los escriben los simuladores de OB30.
+	//   Region 2: escalado de la temperatura del horno (4-20 mA, SM 1234 %IW96)
+	//             con diagnostico NAMUR NE43, para senal real o simulada.
+	//
+	// CONTRATO DE USO
+	//   - Llamar en la PRIMERA red de OB1, antes de cualquier logica.
+	//   - Con Config.Simulacion = TRUE, Horno.Temp.Raw conserva el ultimo valor
+	//     escrito (real o del simulador de horno).
+	//
+	// LIMITACIONES
+	//   - Sin antirrebote en las entradas del panel (se agrega con FB_Antirrebote).
+	//   - Config.Simulacion = TRUE en la maquina real ignora los sensores reales:
+	//     debe mostrarse como alarma en el HMI.
+	//
+	// DEPENDENCIAS
+	//   - DB_Planta, tabla de tags IO_Maquina, FC_Escalar4a20
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-26  Version inicial
+	//=============================================================================
 	
 	REGION 0_Panel
 	    

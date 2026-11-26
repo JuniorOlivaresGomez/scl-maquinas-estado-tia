@@ -25,7 +25,41 @@ VERSION : 0.1
 
 
 BEGIN
-	
+	//=============================================================================
+	// FB_SimCilindro | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Modelo de un cilindro neumatico con valvula 5/2 y dos sensores de
+	//   posicion, para probar la logica sin maquina (puesta en marcha virtual).
+	//
+	// MODELO
+	//   Valvula: monoestable -> sin senal vuelve a retroceso (resorte).
+	//            biestable   -> sin senal conserva la ultima posicion (DirValvula).
+	//   Vastago (velocidad constante, periodo iTs):
+	//     Pos[k+1] = Pos[k] + Dir * 100 * iTs / iTiempoCarrera     [%]
+	//     Pos limitada a 0..100 (topes mecanicos)
+	//   Sensores: SensAtras = Pos <= 1 ; SensAdelante = Pos >= 99
+	//
+	// CONTRATO DE USO
+	//   - Llamar en OB30 con iTs = periodo de OB30.
+	//   - Llamar solo con Config.Simulacion = TRUE (sus salidas sobrescriben los
+	//     sensores de DB_Planta).
+	//   - Fallas inyectables (iFalla*): dejarlas SIN conectar en la llamada y
+	//     modificarlas en el DB de instancia desde una tabla de observacion.
+	//
+	// LIMITACIONES
+	//   - Velocidad constante: no modela aceleracion, carga ni presion de aire.
+	//   - Sin retardo ni rebote de sensores.
+	//   - Pos no es retentiva: tras arrancar la CPU el cilindro simulado esta atras.
+	//
+	// DEPENDENCIAS
+	//   - Ninguna.
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-26  Version inicial
+	//=============================================================================
 	REGION 0_Valvula        // direccion segun las bobinas
 	    
 	    IF #iBobinaAvance AND NOT #iBobinaRetroceso THEN

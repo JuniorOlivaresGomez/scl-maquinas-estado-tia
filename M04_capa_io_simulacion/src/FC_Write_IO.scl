@@ -70,7 +70,35 @@ VERSION : 0.1
 
 
 BEGIN
-	
+	//=============================================================================
+	// FC_Write_IO | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Capa de abstraccion de salidas. UNICO lugar del programa donde se
+	//   escriben direcciones %Q. Copia DB_Planta a las salidas fisicas.
+	//
+	// FUNCIONAMIENTO
+	//   Region 0: Habilitar := NOT Config.Simulacion
+	//   Region 1: actuadores de proceso (bobinas, resistencia) = senal AND Habilitar.
+	//             En simulacion quedan en FALSE: la maquina real no se mueve.
+	//   Region 2: senalizacion (piloto de falla), siempre activa.
+	//
+	// CONTRATO DE USO
+	//   - Llamar en la ULTIMA red de OB1, despues de la logica y de los bloqueos
+	//     (FC_BloqueoIncoherencia), para enviar el resultado final.
+	//
+	// LIMITACIONES
+	//   - El bloqueo en simulacion es por software: no reemplaza la desconexion
+	//     de energia de los actuadores por el circuito de seguridad.
+	//
+	// DEPENDENCIAS
+	//   - DB_Planta, tabla de tags IO_Maquina
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-26  Version inicial
+	//=============================================================================
 	
 	REGION 0_Permiso
 	    
