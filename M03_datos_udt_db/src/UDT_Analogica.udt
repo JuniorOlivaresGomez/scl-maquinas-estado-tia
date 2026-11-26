@@ -2,10 +2,19 @@
 VERSION : 0.1
    STRUCT
       Raw : Int := 0;   // Valor de la tarjeta (0..27648 nominal)
-      LinInf : Real := 0.0;   // Unidades de ingenieria cuando Raw = 0
+      LimInf : Real := 0.0;   // Unidades de ingenieria cuando Raw = 0
       LimSup : Real := 100.0;   // Unidades de ingenieria cuando Raw = 27648
       Valor : Real := 0.0;   // Valor escalado
       FueraRango : Bool := false;   // TRUE = Raw fuera del rango nominal
+      ValorFalla : Real := 0.0;   // Valor seguro que se entrega con falla [unidades de ingenieria]
+      Corriente : Real;   // Corriente del lazo [mA] (solo senales 4-20 mA)
+      Falla : Bool;   // Falla general de la senal (usar en la FSM)
+      Diag : Struct   // Detalle de la falla (para diagnostico)
+         FallaBaja : Bool;   // I <= 3.6 mA (rotura / sin alimentacion)
+         FallaAlta : Bool;   // I >= 21 mA (cortocircuito)
+         DesbordeAlto : Bool;   // Raw = 32767 (tipo no determinado)
+         DesbordeBajo : Bool;   // Raw = -32768 (tipo no determinado)
+      END_STRUCT;
    END_STRUCT;
 
 END_TYPE

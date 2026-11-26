@@ -1,0 +1,60 @@
+﻿FUNCTION_BLOCK "FB_SimCilindro"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      iBobinaAvance : Bool;   // Salida hacia la bobina de avance
+      iBobinaRetroceso : Bool;   // Salida hacia la bobina de retroceso
+      iMonoestable : Bool;   // TRUE = Valvula con retorno por resorte
+      iTiempoCarrera : Real := 1.5;   // Tiempo de carrera completa [s]
+      iTs : Real := 0.1;   // Periodo de OB30 [s]
+      iFallaAtascado : Bool;   // Falla inyectada: el vastago no se mueve
+      iFallaSensorAtras : Bool;   // Falla inyectada: sensor atras muerto
+      iFallaSensorAdelante : Bool;   // Falla inyectada: sensor adelante muerto
+   END_VAR
+
+   VAR_OUTPUT 
+      qSensAtras : Bool;   // Sensor atras simulado
+      qSensAdelante : Bool;   // Sensor adelante simulado
+      qPosicion : Real;   // Posicion [%] -> 0 = atras, 100 = adelante
+   END_VAR
+
+   VAR 
+      Pos { ExternalWritable := 'False'} : Real;   // Posicion interna [%]. Arranca atras
+      DirValvula { ExternalWritable := 'False'} : Int;   // +1 avance, -1 retroceso, 0 sin presion
+   END_VAR
+
+
+BEGIN
+	
+	REGION 0_Valvula        // direccion segun las bobinas
+	    
+	    IF #iBobinaAvance AND NOT #iBobinaRetroceso THEN
+	        #DirValvula := 1;
+	    ELSIF #iBobinaRetroceso AND NOT #iBobinaAvance THEN
+	        #DirValvula := -1;
+	    ELSIF #iMonoestable THEN
+	        #DirValvula := -1;
+	    END_IF;
+	    
+	END_REGION
+	
+	REGION 1_Movimiento
+	    
+	    IF (#iTiempoCarrera > 0.0) AND NOT #iFallaAtascado THEN
+	        #Pos := #Pos + INT_TO_REAL(#DirValvula) * 100.0 * #iTs / #iTiempoCarrera;
+	    END_IF;
+	    
+	    #Pos := LIMIT(MN := 0.0, IN := #Pos, MX := 100.0);
+	
+	END_REGION
+	
+	REGION 2_Sensores       // con fallas inyectables
+	    
+	    #qSensAtras := (#Pos <= 1.0) AND NOT #iFallaSensorAtras;
+	    #qSensAdelante := (#Pos >= 99.0) AND NOT #iFallaSensorAdelante;
+	    #qPosicion := #Pos;
+	     
+	END_REGION
+	
+END_FUNCTION_BLOCK
+

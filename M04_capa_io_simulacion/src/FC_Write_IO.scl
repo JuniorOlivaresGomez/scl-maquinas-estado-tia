@@ -1,0 +1,98 @@
+﻿TYPE "UDT_CilindroIO"
+VERSION : 0.1
+   STRUCT
+      SensAtras : Bool;   // TRUE = vastago retraido
+      SensAdelante : Bool;   // TRUE = vastago extendido
+      BobinaAvance : Bool;   // TRUE = energizar bobina de avance
+      BobinaRetroceso : Bool;   // TRUE = energizar bobina de retroceso
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "UDT_Analogica"
+VERSION : 0.1
+   STRUCT
+      Raw : Int := 0;   // Valor de la tarjeta (0..27648 nominal)
+      LimInf : Real := 0.0;   // Unidades de ingenieria cuando Raw = 0
+      LimSup : Real := 100.0;   // Unidades de ingenieria cuando Raw = 27648
+      Valor : Real := 0.0;   // Valor escalado
+      FueraRango : Bool := false;   // TRUE = Raw fuera del rango nominal
+      ValorFalla : Real := 0.0;   // Valor seguro que se entrega con falla [unidades de ingenieria]
+      Corriente : Real;   // Corriente del lazo [mA] (solo senales 4-20 mA)
+      Falla : Bool;   // Falla general de la senal (usar en la FSM)
+      Diag : Struct   // Detalle de la falla (para diagnostico)
+         FallaBaja : Bool;   // I <= 3.6 mA (rotura / sin alimentacion)
+         FallaAlta : Bool;   // I >= 21 mA (cortocircuito)
+         DesbordeAlto : Bool;   // Raw = 32767 (tipo no determinado)
+         DesbordeBajo : Bool;   // Raw = -32768 (tipo no determinado)
+      END_STRUCT;
+   END_STRUCT;
+
+END_TYPE
+
+DATA_BLOCK "DB_Planta"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+   VAR 
+      Config : Struct   // Configuracion
+         Simulacion : Bool;   // TRUE = Sensores vienen del simulador (M04)
+      END_STRUCT;
+      Panel : Struct   // Panel del operador
+         Start : Bool;   // Pulsador de marcha
+         Stop : Bool;   // TRUE = para pedido (NC ya invertido)
+         Reset : Bool;   // Pulsador de rearme
+         SeguridadOk : Bool;   // Rele de seguridad
+         LamparaFalla : Bool;   // Piloto de falla
+      END_STRUCT;
+      Cil1 { S7_SetPoint := 'False'} : "UDT_CilindroIO";   // Cilindro 1
+      Cil2 : "UDT_CilindroIO";   // Cilindro 2
+      Horno : Struct   // Camara de curado
+         Temp { S7_SetPoint := 'False'} : "UDT_Analogica";   // Temperatura [degC]
+         Resistencia { S7_SetPoint := 'True'} : Bool;   // TRUE = Resistencia energizada
+      END_STRUCT;
+   END_VAR
+
+
+BEGIN
+   Horno.Temp.LimInf := 0.0;
+   Horno.Temp.LimSup := 300.0;
+   Horno.Temp.ValorFalla := 300.0;
+
+END_DATA_BLOCK
+
+FUNCTION "FC_Write_IO" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_TEMP 
+      Habilitar : Bool;   // TRUE = se permite mover actuadores reales
+   END_VAR
+
+
+BEGIN
+	
+	
+	REGION 0_Permiso
+	    
+	    #Habilitar := NOT "DB_Planta".Config.Simulacion;
+	    
+	END_REGION
+	
+	REGION 1_Actuadores         // bloqueado al simular
+	    
+	    "Q_Cil1_Avance" := "DB_Planta".Cil1.BobinaAvance AND #Habilitar;
+	    "Q_Cil1_Retroceso" := "DB_Planta".Cil1.BobinaRetroceso AND #Habilitar;
+	    "Q_Cil2_Avance" := "DB_Planta".Cil2.BobinaAvance AND #Habilitar;
+	    "Q_Cil2_Retroceso" := "DB_Planta".Cil2.BobinaRetroceso AND #Habilitar;
+	    "Q_Horno_Resist" := "DB_Planta".Horno.Resistencia AND #Habilitar;
+	    
+	END_REGION
+	
+	REGION 2_Senalizacion
+	    
+	    "Q_Lampara_Falla" := "DB_Planta".Panel.LamparaFalla;
+	    
+	END_REGION
+	
+END_FUNCTION
+

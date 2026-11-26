@@ -1,0 +1,328 @@
+﻿FUNCTION "FC_EscalarAnalogica" : Void
+TITLE = Escalado lineal de entrada analogica
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : JOLIVARES
+VERSION : 0.1
+//Raw -> 0 ... 27648 se convierte a unidades de ingenieria
+   VAR_INPUT 
+      iRaw : Int;   // Valor de la tarjeta (RAW_MIN..RAW_MAX nominal; mayor = rebase)
+      iLimInf : Real;   // Unidades de ingenieria cuando iRaw = RAW_MIN
+      iLimSup : Real;   // Unidades de ingenieria cuando iRaw = RAW_MAX
+   END_VAR
+
+   VAR_OUTPUT 
+      qValor : Real;   // Valor en unidades de ingenieria, siempre entre iLimInf e iLimSup
+      qFueraRango : Bool;   // TRUE = iRaw fuera de RAW_MIN..RAW_MAX (rebase o desborde)
+   END_VAR
+
+   VAR_TEMP 
+      FraccionRaw : Real;   // Posicion relativa en el rango, 0.0 .. 1.0
+   END_VAR
+
+   VAR CONSTANT 
+      RAW_MAX : Int := 27648;   // Valor maximo para la entrada iRaw
+      RAW_MIN : Int := 0;   // valor minimo para la entrada iRaw
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// FC_EscalarAnalogica | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Convierte el valor digitalizado de una entrada analogica S7-1200
+	//   a unidades de ingenieria (degC, bar, %...).
+	//
+	// FORMULA (recta por (RAW_MIN, iLimInf) y (RAW_MAX, iLimSup))
+	//   Fraccion = (Raw - RAW_MIN) / (RAW_MAX - RAW_MIN)   limitada a 0.0 .. 1.0
+	//   Valor    = iLimInf + Fraccion * (iLimSup - iLimInf)
+	//   RAW_MIN  = 0, RAW_MAX = 27648 (rango nominal S7-1200)
+	//
+	// CONTRATO DE USO
+	//   - Sin memoria: puede llamarse desde cualquier OB.
+	//   - Admite rango invertido (iLimInf > iLimSup).
+	//   - qValor siempre queda entre iLimInf e iLimSup.
+	//   - qFueraRango = TRUE si Raw < RAW_MIN o Raw > RAW_MAX.
+	//
+	// LIMITACIONES
+	//   - Con senal 0-10 V no detecta rotura de cable: 0 V es un valor valido.
+	//   - No filtra ruido de la medicion.
+	//
+	// DEPENDENCIAS
+	//   - Ninguna.
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-19  Version inicial
+	//=============================================================================
+	
+	REGION 0_Normalizar         // Normalizar el valor del sensor entre 0 y 1
+	    // Conversion a Real ANTES de restar: evita desborde de Int
+	    #FraccionRaw := (INT_TO_REAL(#iRaw) - INT_TO_REAL(#RAW_MIN))
+	    / (INT_TO_REAL(#RAW_MAX) - INT_TO_REAL(#RAW_MIN));
+	    #FraccionRaw := LIMIT(MN := 0.0, IN := #FraccionRaw, MX := 1.0);
+	END_REGION
+	
+	REGION 1_Escalar            // Escalar a unidades de ingenieria
+	    // Fraccion entre 0 y 1 => qValor queda entre iLimInf e iLimSup,
+	    // incluso con rango invertido
+	    #qValor := #iLimInf + #FraccionRaw * (#iLimSup - #iLimInf);
+	END_REGION
+	
+	REGION 2_Diagnostico        // Valor fuera del rango nominal (rebase o desborde)
+	    #qFueraRango := (#iRaw < #RAW_MIN) OR (#iRaw > #RAW_MAX);
+	END_REGION
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+END_FUNCTION
+
+TYPE "UDT_CilindroIO"
+VERSION : 0.1
+   STRUCT
+      SensAtras : Bool;   // TRUE = vastago retraido
+      SensAdelante : Bool;   // TRUE = vastago extendido
+      BobinaAvance : Bool;   // TRUE = energizar bobina de avance
+      BobinaRetroceso : Bool;   // TRUE = energizar bobina de retroceso
+   END_STRUCT;
+
+END_TYPE
+
+TYPE "UDT_Analogica"
+VERSION : 0.1
+   STRUCT
+      Raw : Int := 0;   // Valor de la tarjeta (0..27648 nominal)
+      LimInf : Real := 0.0;   // Unidades de ingenieria cuando Raw = 0
+      LimSup : Real := 100.0;   // Unidades de ingenieria cuando Raw = 27648
+      Valor : Real := 0.0;   // Valor escalado
+      FueraRango : Bool := false;   // TRUE = Raw fuera del rango nominal
+      ValorFalla : Real := 0.0;   // Valor seguro que se entrega con falla [unidades de ingenieria]
+      Corriente : Real;   // Corriente del lazo [mA] (solo senales 4-20 mA)
+      Falla : Bool;   // Falla general de la senal (usar en la FSM)
+      Diag : Struct   // Detalle de la falla (para diagnostico)
+         FallaBaja : Bool;   // I <= 3.6 mA (rotura / sin alimentacion)
+         FallaAlta : Bool;   // I >= 21 mA (cortocircuito)
+         DesbordeAlto : Bool;   // Raw = 32767 (tipo no determinado)
+         DesbordeBajo : Bool;   // Raw = -32768 (tipo no determinado)
+      END_STRUCT;
+   END_STRUCT;
+
+END_TYPE
+
+FUNCTION "FC_Escalar4a20" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      iRaw : Int;   // Valor de la tarjeta 4 - 20 mA
+      iLimInf : Real;   // Unidades de ingenieria a 4 mA
+      iLimSup : Real;   // Unidades de ingenieria a 20 mA
+      iValorFalla : Real;   // Valor seguro que se entrega con falla [unidades de ingenieria]
+   END_VAR
+
+   VAR_OUTPUT 
+      qValor : Real;   // Valor en unidades de ingenieria, o iValorFalla
+      qCorriente : Real;   // Corriente calculada [mA] (diagnostico), sin limitar
+      qFueraRango : Bool;   // Fuera de 4 - 20 mA pero sin falla
+      qFallaBaja : Bool;   // TRUE = I <= I_FALLA_BAJA sin desbordamiento (rotura / sin alimentacion)
+      qFallaAlta : Bool;   // TRUE = I >= I_FALLA_ALTA sin desbordamiento (cortocircuito)
+      qFalla : Bool;   // Falla general: baja, alta o desbordamiento (usar en la FSM)
+      qFallaDesbordeAlto : Bool;   // TRUE = iRaw = RAW_OVERFLOW (tipo de falla no determinado)
+      qFallaDesbordeBajo : Bool;   // TRUE = iRaw = RAW_UNDERFLOW (tipo de falla no determinado)
+   END_VAR
+
+   VAR_TEMP 
+      FueraRango4a20 : Bool;
+   END_VAR
+
+   VAR CONSTANT 
+      I_MIN : Real := 4.0;
+      I_SPAN : Real := 16.0;
+      RAW_MAX : Int := 27648;
+      I_FALLA_BAJA : Real := 3.6;
+      I_FALLA_ALTA : Real := 21.0;
+      RAW_OVERFLOW : Int := 32767;   // Codigo de desbordamiento superior de la tarjeta
+      RAW_UNDERFLOW : Int := -32768;   // Codigo de desbordamiento inferior de la tarjeta
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// FC_Escalar4a20 | v0.1
+	// Autor:   Junior Olivares
+	// CPU:     S7-1200 (1215C DC/DC/DC), TIA Portal V19
+	//-----------------------------------------------------------------------------
+	// FUNCION
+	//   Escala una entrada analogica 4-20 mA (SM 1231 / SB 1231) a unidades de
+	//   ingenieria y diagnostica fallas del lazo segun NAMUR NE43.
+	//
+	// FORMULA
+	//   Corriente: I = I_MIN + I_SPAN * Raw / RAW_MAX            [mA]
+	//              Raw = 0 -> 4 mA, Raw = RAW_MAX (27648) -> 20 mA
+	//   Valor:     mediante FC_EscalarAnalogica (Raw 0..RAW_MAX -> iLimInf..iLimSup).
+	//              El desfase de 4 mA lo resuelve la tarjeta: visto desde Raw,
+	//              el rango empieza en 0.
+	//   Fallas:
+	//     Raw = RAW_OVERFLOW  (32767)  -> desborde alto  (tipo no determinado)
+	//     Raw = RAW_UNDERFLOW (-32768) -> desborde bajo  (tipo no determinado)
+	//     I <= I_FALLA_BAJA (3.6 mA)   -> falla baja (rotura, sin alimentacion)  NE43
+	//     I >= I_FALLA_ALTA (21 mA)    -> falla alta (cortocircuito)             NE43
+	//     qFalla = cualquiera de las cuatro
+	//
+	// CONTRATO DE USO
+	//   - Sin memoria: puede llamarse desde cualquier OB.
+	//   - Admite rango invertido (heredado de FC_EscalarAnalogica).
+	//   - Con qFalla = TRUE: qValor = iValorFalla.
+	//   - iValorFalla lo define quien llama: debe ser el valor SEGURO para el
+	//     proceso (ej. horno: temperatura alta, para que el control no caliente).
+	//   - La FSM debe usar solo qFalla. Las salidas de tipo (Baja, Alta,
+	//     DesbordeAlto, DesbordeBajo) son informacion para diagnostico.
+	//   - La falla NO se enclava (FC sin memoria): el enclavamiento y el rearme
+	//     corresponden a la FSM.
+	//   - qFueraRango = TRUE solo si la corriente esta fuera de 4-20 mA sin falla.
+	//   - qCorriente no esta limitada: muestra el valor real para diagnostico.
+	//
+	// LIMITACIONES
+	//   - Codigos de la tarjeta segun configuracion del canal (SM 1231):
+	//       Diagnostico de rotura ACTIVADO:    rotura y desborde -> 32767
+	//                                          (no distinguibles: DesbordeAlto)
+	//       Diagnostico de rotura DESACTIVADO: rotura -> -32768 (DesbordeBajo)
+	//                                          desborde -> 32767 (DesbordeAlto)
+	//     Verificado en la logica del manual S7-1500; confirmar en el manual
+	//     S7-1200 o con prueba fisica.
+	//   - Ajustar el tiempo de integracion del canal a 60 Hz (red en Peru).
+	//   - qValor no distingue un valor sustituto de una medicion real: usar
+	//     qFalla para generar alarma en el HMI.
+	//   - No filtra ruido de la medicion.
+	//
+	// DEPENDENCIAS
+	//   - FC_EscalarAnalogica
+	//
+	// HISTORIAL
+	//   v0.1  2026-11-20  Version inicial
+	//=============================================================================
+	
+	REGION 0_Valor              // Escalado a unidades de ingenieria (reutiliza FC_EscalarAnalogica)
+	    "FC_EscalarAnalogica"(iRaw := #iRaw,
+	                          iLimInf := #iLimInf,
+	                          iLimSup := #iLimSup,
+	                          qValor => #qValor,
+	                          qFueraRango => #FueraRango4a20);
+	END_REGION
+	
+	REGION 1_Corriente          // Corriente del lazo en mA, para diagnostico
+	    // Sin LIMIT a proposito: el diagnostico necesita ver valores
+	    // fuera de 4-20 mA (FC_EscalarAnalogica los recortaria)
+	    #qCorriente := #I_MIN + #I_SPAN * INT_TO_REAL(#iRaw) / INT_TO_REAL(#RAW_MAX);
+	END_REGION
+	
+	REGION 2_Fallas             // Fallas del lazo: desbordes de tarjeta y NAMUR NE43
+	    // Desbordes primero: con estos codigos no se puede saber el tipo de falla
+	    #qFallaDesbordeAlto := (#iRaw = #RAW_OVERFLOW);
+	    #qFallaDesbordeBajo := (#iRaw = #RAW_UNDERFLOW);
+	    
+	    // NE43: solo si NO es un codigo de desbordamiento
+	    #qFallaBaja := (#qCorriente <= #I_FALLA_BAJA) AND NOT #qFallaDesbordeBajo;
+	    #qFallaAlta := (#qCorriente >= #I_FALLA_ALTA) AND NOT #qFallaDesbordeAlto;
+	    
+	    // Falla general: es la unica senal que debe usar la FSM
+	    #qFalla := #qFallaAlta OR #qFallaBaja OR #qFallaDesbordeAlto OR #qFallaDesbordeBajo;
+	END_REGION
+	
+	REGION 3_FueraRango         // Fuera de 4-20 mA, pero todavia sin falla
+	    #qFueraRango := #FueraRango4a20 AND NOT #qFalla;
+	END_REGION
+	
+	REGION 4_ValorFalla         // Con falla, la medicion no es confiable: se entrega el valor seguro
+	    IF #qFalla THEN
+	        #qValor := #iValorFalla;
+	    END_IF;
+	END_REGION
+END_FUNCTION
+
+DATA_BLOCK "DB_Planta"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+   VAR 
+      Config : Struct   // Configuracion
+         Simulacion : Bool;   // TRUE = Sensores vienen del simulador (M04)
+      END_STRUCT;
+      Panel : Struct   // Panel del operador
+         Start : Bool;   // Pulsador de marcha
+         Stop : Bool;   // TRUE = para pedido (NC ya invertido)
+         Reset : Bool;   // Pulsador de rearme
+         SeguridadOk : Bool;   // Rele de seguridad
+         LamparaFalla : Bool;   // Piloto de falla
+      END_STRUCT;
+      Cil1 { S7_SetPoint := 'False'} : "UDT_CilindroIO";   // Cilindro 1
+      Cil2 : "UDT_CilindroIO";   // Cilindro 2
+      Horno : Struct   // Camara de curado
+         Temp { S7_SetPoint := 'False'} : "UDT_Analogica";   // Temperatura [degC]
+         Resistencia { S7_SetPoint := 'True'} : Bool;   // TRUE = Resistencia energizada
+      END_STRUCT;
+   END_VAR
+
+
+BEGIN
+   Horno.Temp.LimInf := 0.0;
+   Horno.Temp.LimSup := 300.0;
+   Horno.Temp.ValorFalla := 300.0;
+
+END_DATA_BLOCK
+
+FUNCTION "FC_Read_IO" : Void
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+
+BEGIN
+	
+	
+	REGION 0_Panel
+	    
+	    "DB_Planta".Panel.Start := "I_Start";
+	    "DB_Planta".Panel.Stop := NOT "I_Stop_NC";
+	    "DB_Planta".Panel.Reset := "I_Reset";
+	    "DB_Planta".Panel.SeguridadOk := "I_RelSeg_Ok";
+	    
+	END_REGION
+	
+	REGION 1_Proceso             // Solo sino se simula
+	    
+	    IF NOT "DB_Planta".Config.Simulacion THEN
+	        "DB_Planta".Cil1.SensAtras := "I_Cil1_Atras";
+	        "DB_Planta".Cil1.SensAdelante := "I_Cil1_Adelante";
+	        "DB_Planta".Cil2.SensAtras := "I_Cil2_Atras";
+	        "DB_Planta".Cil2.SensAdelante := "I_Cil2_Adelante";
+	        "DB_Planta".Horno.Temp.Raw := "I_Horno_Temp";
+	    END_IF;
+	    
+	END_REGION
+	
+	REGION 2_Escalado           // Igual para señal real o simulada
+	    
+	    "FC_Escalar4a20"(iRaw:= "DB_Planta".Horno.Temp.Raw,
+	                     iLimInf:= "DB_Planta".Horno.Temp.LimInf,
+	                     iLimSup:= "DB_Planta".Horno.Temp.LimSup,
+	                     iValorFalla:= "DB_Planta".Horno.Temp.ValorFalla,
+	                     qValor=> "DB_Planta".Horno.Temp.Valor,
+	                     qCorriente=> "DB_Planta".Horno.Temp.Corriente,
+	                     qFueraRango=> "DB_Planta".Horno.Temp.FueraRango,
+	                     qFallaBaja=> "DB_Planta".Horno.Temp.Diag.FallaBaja,
+	                     qFallaAlta=> "DB_Planta".Horno.Temp.Diag.FallaAlta,
+	                     qFalla=> "DB_Planta".Horno.Temp.Falla,
+	                     qFallaDesbordeAlto=> "DB_Planta".Horno.Temp.Diag.DesbordeAlto,
+	                     qFallaDesbordeBajo=> "DB_Planta".Horno.Temp.Diag.DesbordeBajo);
+	    
+	END_REGION
+	
+	
+END_FUNCTION
+
