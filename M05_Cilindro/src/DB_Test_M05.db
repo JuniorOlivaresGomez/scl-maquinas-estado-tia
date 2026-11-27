@@ -1,0 +1,21 @@
+﻿DATA_BLOCK "DB_Test_M05"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+NON_RETAIN
+   VAR 
+      Auto : Bool;
+      CmdAv : Bool;
+      CmdRe : Bool;
+      ManAv : Bool;
+      ManRe : Bool;
+      PermisoAv : Bool;
+      PermisoRe : Bool;
+   END_VAR
+
+
+BEGIN
+   PermisoAv := true;
+   PermisoRe := true;
+
+END_DATA_BLOCK
+

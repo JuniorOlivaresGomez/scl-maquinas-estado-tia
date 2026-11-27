@@ -1,0 +1,171 @@
+﻿TYPE "UDT_CilindroIO"
+VERSION : 0.1
+   STRUCT
+      SensAtras : Bool;   // TRUE = vastago retraido
+      SensAdelante : Bool;   // TRUE = vastago extendido
+      BobinaAvance : Bool;   // TRUE = energizar bobina de avance
+      BobinaRetroceso : Bool;   // TRUE = energizar bobina de retroceso
+   END_STRUCT;
+
+END_TYPE
+
+FUNCTION_BLOCK "FB_Cilindro"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+   VAR_INPUT 
+      iAuto : Bool;   // TRUE = automatico, FALSE = manual
+      iCmdAutoAvanzar : Bool;   // Orden de la secuencia
+      iCmdAutoRetroceder : Bool;   // Orden de la secuencia
+      iManAvanzar : Bool;   // Mando manual sostenido (HMI)
+      iManRetroceder : Bool;   // Mando manual sostenido (HMI)
+      iPermisoAvanzar : Bool := TRUE;   // Interlock: FALSE bloquea el avance
+      iPermisoRetroceder : Bool := TRUE;   // Interlock: FALSE bloquea el retroceso
+      iTiempoMax : Time := T#3S;   // Tiempo maximo de carrera (watchdog)
+      iReset : Bool;   // Rearme de falla (se usa el flanco)
+   END_VAR
+
+   VAR_OUTPUT 
+      qEnAtras { ExternalWritable := 'False'} : Bool;   // Posicion atras confirmada
+      qEnAdelante { ExternalWritable := 'False'} : Bool;   // Posicion adelante confirmada
+      qEsperandoPermiso { ExternalWritable := 'False'} : Bool;   // Hay orden pero falta permiso (interlock)
+      qFalla { ExternalWritable := 'False'} : Bool;   // TRUE = falla enclavada
+      qCodFalla : Int;   // Codigo de la primera falla
+   END_VAR
+
+   VAR_IN_OUT 
+      ioCil : "UDT_CilindroIO";   // Cilindro: se leen sensores y se escriben bobinas
+   END_VAR
+
+   VAR 
+      CodFalla { ExternalWritable := 'False'} : Int;   // Falla enclavada (memoria)
+      BobinaAvMem { ExternalWritable := 'False'} : Bool;   // Bobina de avance mandada en el ciclo anterior
+      BobinaReMem { ExternalWritable := 'False'} : Bool;   // Bobina de retroceso mandada en el ciclo anterior
+      tmrAvance {InstructionName := 'TON_TIME'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : TON_TIME;   // Watchdog de avance
+      tmrRetroceso {InstructionName := 'TON_TIME'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : TON_TIME;   // Watchdog de retroceso
+      rtReset {InstructionName := 'R_TRIG'; LibVersion := '1.0'; ExternalWritable := 'False'; S7_SetPoint := 'False'} : R_TRIG;   // Flanco del rearme
+   END_VAR
+
+   VAR_TEMP 
+      CmdAv : Bool;   // Orden de avance segun el modo
+      CmdRe : Bool;   // Orden de retroceso segun el modo
+      SensIncoherentes : Bool;   // Ambos sensores activos
+   END_VAR
+
+
+BEGIN
+	//=============================================================================
+	// Bloque      : FB_Cilindro
+	// Version     : 0.1
+	// Autor       : Junior Olivares Gomez
+	// Fecha       : 2026-11-27
+	// Modulo      : M05 - Maquina de Mangas
+	//-----------------------------------------------------------------------------
+	// Descripcion :
+	//   Gobierna un cilindro neumatico de doble efecto (bobina de avance y de
+	//   retroceso). Integra modo auto/manual, interlocks por permiso, watchdog
+	//   de carrera y diagnostico de incoherencia de sensores.
+	//
+	// Funcionamiento:
+	//   - Modo: iAuto = TRUE toma las ordenes de la secuencia (iCmdAuto*);
+	//     iAuto = FALSE toma los mandos manuales sostenidos (iMan*).
+	//     Ordenes contradictorias (avanzar y retroceder a la vez) -> ninguna.
+	//   - Interlock: sin permiso la bobina no se energiza y qEsperandoPermiso
+	//     se activa. Es una espera normal, NO genera falla.
+	//   - Watchdog: si la bobina esta activa y el sensor de destino no llega
+	//     en iTiempoMax, se enclava la falla.
+	//   - Primera falla (first-out): se guarda solo la primera; las siguientes
+	//     no la sobrescriben. Cualquier falla apaga ambas bobinas.
+	//   - Rearme por flanco de iReset. Va ANTES de la deteccion: si la causa
+	//     sigue presente, la falla se vuelve a enclavar en el mismo ciclo.
+	//
+	// Codigos de falla (qCodFalla):
+	//   0 = sin falla
+	//   1 = no llego adelante en iTiempoMax
+	//   2 = no llego atras en iTiempoMax
+	//   3 = incoherencia: ambos sensores activos
+	//
+	// Limitaciones:
+	//   - Apagar la bobina NO detiene un cilindro con valvula 5/2 biestable:
+	//     termina la carrera. Para detenerlo a mitad de carrera se requiere
+	//     valvula 5/3 de centro cerrado o valvula de descarga.
+	//   - No es una funcion de seguridad. La parada de emergencia va por
+	//     hardware (rele de seguridad / F-CPU).
+	//   - iTiempoMax debe ser mayor que el tiempo real de carrera mas un margen.
+	//   - Cambiar un valor por defecto no actualiza el DB de instancia en
+	//     caliente: el valor de arranque se aplica en STOP -> RUN. Conectar
+	//     explicitamente en la llamada los parametros que importan.
+	//=============================================================================
+	
+	REGION 0_Instrucciones
+	    
+	    #rtReset(CLK := #iReset);
+	    #tmrAvance(IN := #BobinaAvMem AND NOT #ioCil.SensAdelante,
+	               PT := #iTiempoMax);
+	    #tmrRetroceso(IN := #BobinaReMem AND NOT #ioCil.SensAtras,
+	                  PT := #iTiempoMax);
+	    #SensIncoherentes := #ioCil.SensAtras AND #ioCil.SensAdelante;
+	    
+	END_REGION
+	
+	REGION 1_Modo
+	    
+	    IF #iAuto THEN
+	        #CmdAv := #iCmdAutoAvanzar;
+	        #CmdRe := #iCmdAutoRetroceder;
+	    ELSE
+	        #CmdAv := #iManAvanzar;
+	        #CmdRe := #iManRetroceder;
+	    END_IF;
+	    
+	    IF #CmdAv AND #CmdRe THEN
+	        #CmdAv := FALSE;
+	        #CmdRe := FALSE;
+	    END_IF;
+	    
+	END_REGION
+	
+	REGION 2_Rearme
+	    
+	    IF #rtReset.Q THEN
+	        #CodFalla := 0;
+	    END_IF;
+	END_REGION
+	
+	REGION 3_Fallas
+	    
+	    IF #CodFalla = 0 THEN
+	        IF #SensIncoherentes THEN
+	            #CodFalla := 3;
+	        ELSIF #tmrAvance.Q THEN
+	            #CodFalla := 1;
+	        ELSIF #tmrRetroceso.Q THEN
+	            #CodFalla := 2;
+	        END_IF;
+	    END_IF;
+	    
+	END_REGION
+	
+	
+	REGION 4_Bobinas
+	    
+	    #BobinaAvMem := #CmdAv AND #iPermisoAvanzar AND (#CodFalla = 0);
+	    #BobinaReMem := #CmdRe AND #iPermisoRetroceder AND (#CodFalla = 0);
+	    
+	END_REGION
+	
+	REGION 5_Salidas
+	    
+	    #ioCil.BobinaAvance := #BobinaAvMem;
+	    #ioCil.BobinaRetroceso := #BobinaReMem;
+	    #qEnAtras := #ioCil.SensAtras AND NOT #ioCil.SensAdelante;
+	    #qEnAdelante := #ioCil.SensAdelante AND NOT #ioCil.SensAtras;
+	    #qEsperandoPermiso := (#CmdAv AND NOT #iPermisoAvanzar) OR (#CmdRe AND NOT #iPermisoRetroceder);
+	    #qFalla := (#CodFalla <> 0);
+	    #qCodFalla := #CodFalla;
+	    
+	END_REGION
+	
+	
+	
+END_FUNCTION_BLOCK
+
